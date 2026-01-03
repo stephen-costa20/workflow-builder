@@ -9,9 +9,8 @@ The entire application runs in the browser from a single HTML file.
 
 ## Preview
 
-```
 ![Preview](assets/preview.gif)
-```
+
 ---
 
 ## Features
