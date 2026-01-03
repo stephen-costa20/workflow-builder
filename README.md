@@ -5,13 +5,11 @@ This project allows users to visually design workflows using draggable nodes and
 
 The entire application runs in the browser from a single HTML file.
 
----
 
 ## Preview
 
 ![Preview](assets/preview.gif)
 
----
 
 ## Features
 
@@ -49,7 +47,6 @@ The entire application runs in the browser from a single HTML file.
 - Inline editing with keyboard shortcuts
 - Hover-based UI controls for visual cleanliness
 
----
 
 ## Tech Stack
 
@@ -65,7 +62,6 @@ The entire application runs in the browser from a single HTML file.
 
 No frameworks. No build step. No backend.
 
----
 
 ## Running Locally
 
@@ -91,7 +87,6 @@ Then open:
 http://localhost:8000/HOME.html
 ```
 
----
 
 ## Data & Privacy Notes
 
@@ -100,7 +95,6 @@ http://localhost:8000/HOME.html
 - No analytics, tracking, or network calls
 - File attachments are handled entirely client-side
 
----
 
 ## Intended Use
 
@@ -113,5 +107,3 @@ It intentionally does **not** include:
 - authentication
 - server-side persistence
 - collaboration or multi-user features
-
----
