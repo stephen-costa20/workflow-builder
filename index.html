@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interactive Workflow Builder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .node text { font-family: ui-sans-serif, system-ui; font-size: 14px; fill: #1f2937; pointer-events: none; }
+    .node .shape { transition: stroke .12s ease, fill .12s ease; }
+    .node.selected .shape { stroke-width: 3; }
+
+    .edge { stroke: var(--edge, #3b82f6); stroke-width: 2; fill: none; pointer-events: stroke; }
+    .edge.selected { stroke: #ef4444; stroke-width: 3; }
+    .edge-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; }
+    .tmp-edge { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 6 4; opacity:.9; }
+
+    .canvas-bg { background-image: radial-gradient(#e2e8f0 1px, transparent 1px); background-size: 16px 16px; }
+    .shape { stroke: #3b82f6; stroke-width: 2; fill: #ffffff; }
+
+    /* connector & add buttons (only on hover for cleanliness) */
+    .node .conn-dot,.node .add-dot{opacity:0; transition:opacity .12s ease-in-out;}
+    .node:hover .conn-dot,.node:hover .add-dot{opacity:1;}
+
+    .popover-enter { transform: scale(.96); opacity: 0; }
+    .popover-enter.popover-active { transform: scale(1); opacity: 1; }
+    .label-editor { position:absolute; z-index:30; }
+  </style>
+</head>
+<body class="h-screen overflow-hidden bg-slate-50">
+  <div class="h-full grid grid-cols-[1fr_320px] grid-rows-[56px_1fr]">
+    <header class="col-span-2 h-14 bg-white border-b border-slate-200 flex items-center px-3 gap-2">
+      <h1 class="font-semibold text-slate-800">Workflow Builder</h1>
+      <div class="ml-auto flex items-center gap-2">
+        <button id="addStartBtn" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm shadow hover:bg-blue-700">Add Start</button>
+        <button id="exportBtn" class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm border border-slate-200 hover:bg-slate-200">Export JSON</button>
+        <label class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm border border-slate-200 hover:bg-slate-200 cursor-pointer">Import JSON
+          <input id="importInput" type="file" accept="application/json" class="hidden" />
+        </label>
+        <button id="clearBtn" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-sm border border-rose-200 hover:bg-rose-100">Clear</button>
+      </div>
+    </header>
+
+    <div id="canvasWrap" class="col-span-1 row-span-1 canvas-bg relative">
+      <svg id="svg" class="absolute inset-0 w-full h-full select-none">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L10,3 L0,6 Z" fill="#3b82f6"></path>
+          </marker>
+        </defs>
+        <g id="viewport" transform="translate(0,0) scale(1)">
+          <g id="edges"></g>
+          <g id="nodes"></g>
+        </g>
+      </svg>
+      <input id="labelEditor" class="label-editor hidden rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow" />
+      <div id="popover" class="hidden absolute z-20 origin-top-left popover-enter transition-all duration-150">
+        <div class="w-80 rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-slate-200">
+            <div class="text-sm font-medium text-slate-700">Node Settings</div>
+            <button id="closePop" class="text-slate-400 hover:text-slate-600">✕</button>
+          </div>
+          <div class="p-3 space-y-3 text-sm">
+            <div>
+              <label class="block text-xs text-slate-600 mb-1">Label</label>
+              <input id="pLabel" class="w-full rounded-md border border-slate-300 px-2 py-1" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-slate-600 mb-1">Shape</label>
+                <select id="pType" class="w-full rounded-md border border-slate-300 px-2 py-1">
+                  <option value="terminator">Terminator</option>
+                  <option value="process">Process</option>
+                  <option value="decision">Decision</option>
+                  <option value="document">Document</option>
+                  <option value="database">Database</option>
+                  <option value="input_output">Input/Output</option>
+                  <option value="display">Display</option>
+                  <option value="manual_operation">Manual Operation</option>
+                  <option value="merge">Merge</option>
+                  <option value="manual_input">Manual Input</option>
+                  <option value="connector">Connector</option>
+                  <option value="internal_storage">Internal Storage</option>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-slate-600 mb-1">Fill</label>
+                  <input id="pFill" type="color" value="#ffffff" class="h-9 w-full rounded-md border border-slate-300" />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-600 mb-1">Stroke</label>
+                  <input id="pStroke" type="color" value="#3b82f6" class="h-9 w-full rounded-md border border-slate-300" />
+                </div>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-600 mb-1">Details</label>
+              <textarea id="pDetails" rows="5" class="w-full rounded-md border border-slate-300 px-2 py-1"></textarea>
+            </div>
+            <div class="pt-2 border-t border-slate-200">
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-xs text-slate-600">Attachments</label>
+                <span id="attachHint" class="text-[11px] text-slate-400">Small files persist; large files are session‑only</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <input id="pFile" type="file" class="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:text-slate-700 hover:file:bg-slate-50" />
+                <button id="pAddFile" class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs border border-slate-200">Add</button>
+              </div>
+              <ul id="pFilesList" class="mt-2 space-y-1 max-h-32 overflow-auto pr-1"></ul>
+            </div>
+            <div class="flex items-center justify-between">
+              <button id="pDelete" class="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs">Delete</button>
+              <div class="space-x-2">
+                <button id="pDuplicate" class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs border border-slate-200">Duplicate</button>
+                <button id="pSave" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="col-start-2 row-start-2 border-l border-slate-200 bg-white p-4 overflow-y-auto">
+      <h2 class="text-sm font-semibold text-slate-700">Quick Tips</h2>
+      <ul class="mt-2 text-xs text-slate-600 list-disc pl-4 space-y-1">
+        <li>Drag nodes to move. Hold <kbd class='px-1 border border-slate-300 rounded'>Shift</kbd> and drag from a node to connect.</li>
+        <li>Or hover a node and drag from the small dot to connect; use the blue <strong>+</strong> dot to add a child node.</li>
+        <li>Click a node to open settings. Double‑click a label to edit inline. Click a line to select (turns red) then press <kbd>Delete</kbd> to remove.</li>
+      </ul>
+    </aside>
+  </div>
+
+  <script>
+    // ========= Data =========
+    let nodes = [];
+    let edges = [];
+    const nodesG = document.getElementById('nodes');
+    const edgesG = document.getElementById('edges');
+    edgesG.style.pointerEvents = 'auto';
+    const svg = document.getElementById('svg');
+    const viewport = document.getElementById('viewport');
+
+    const STATE = { drag:null, selectedId:null, panning:null, panX:0, panY:0, scale:1, spaceHeld:false, connect:null, hoverId:null, selectedEdgeId:null };
+
+    // ---- Geometry for shapes ----
+    const NODE_BASE = { w:160, h:72 };
+    const NODE_SPECS = {
+      terminator:{ w:160, h:56 }, process:{ w:180, h:72 }, decision:{ w:120, h:120 }, document:{ w:180, h:90 }, database:{ w:160, h:90 }, input_output:{ w:180, h:72 }, display:{ w:180, h:72 }, manual_operation:{ w:180, h:72 }, merge:{ w:120, h:110 }, manual_input:{ w:180, h:72 }, connector:{ w:64, h:64 }, internal_storage:{ w:160, h:80 }
+    };
+
+    const uid = () => 'n'+Math.random().toString(36).slice(2,9);
+    const defaultColors = () => ({ fill:'#ffffff', stroke:'#3b82f6' });
+
+    function addNode({x=260,y=160,type='process',label='Process',details='',fill,stroke}={}){
+      const s = NODE_SPECS[type] || NODE_BASE; const colors = defaultColors();
+      const n = { id:uid(), x,y, w:s.w, h:s.h, type, label, details, fill: fill ?? colors.fill, stroke: stroke ?? colors.stroke, attachments: [] };
+      nodes.push(n); render(); persist(); return n;
+    }
+    function addEdge(from,to){
+      // Deduplicate exact same direction edges; allow self-edges
+      const existing = edges.find(e=>e.from===from && e.to===to); if(existing) return existing.id;
+      const id = 'e'+Math.random().toString(36).slice(2,9);
+      edges.push({id,from,to}); renderEdges(); persist(); return id;
+    }
+    const getNode = (id) => nodes.find(n=>n.id===id);
+
+    // Create a new child node beneath a parent and connect them
+    function createChildNode(parent){
+      if(!parent) return null;
+      const gap = 120; // vertical spacing
+      const child = addNode({ x: parent.x, y: parent.y + parent.h + gap, type: 'process', label: 'Step' });
+      addEdge(parent.id, child.id);
+      return child;
+    }
+
+    function duplicateNode(srcId){
+      const src=getNode(srcId); if(!src) return null;
+      const copy=addNode({x:src.x+24,y:src.y+24,type:src.type,label:src.label,details:src.details,fill:src.fill,stroke:src.stroke});
+      if(src.attachments && src.attachments.length){ copy.attachments = src.attachments.filter(a=>!a.sessionOnly).map(a=>({...a})); }
+      persist(); return copy;
+    }
+
+    // ---- Shapes ----
+    function drawShape(g,n){
+      const {w,h}=n; const NS='http://www.w3.org/2000/svg';
+      const make=(name,attrs)=>{ const e=document.createElementNS(NS,name); for(const k in attrs) e.setAttribute(k,attrs[k]); e.setAttribute('class','shape'); e.setAttribute('stroke',n.stroke); e.setAttribute('fill',n.fill); return e; };
+      const add=e=>g.appendChild(e);
+      if(n.type==='process' || n.type==='internal_storage'){ add(make('rect',{x:0,y:0,width:w,height:h,rx:8,ry:8})); if(n.type==='internal_storage'){ const line=document.createElementNS(NS,'path'); line.setAttribute('d',`M0 ${h*0.25} H ${w}`); line.setAttribute('class','shape'); line.setAttribute('fill','none'); line.setAttribute('stroke',n.stroke); g.appendChild(line);} }
+      else if(n.type==='terminator'){ add(make('rect',{x:0,y:0,width:w,height:h,rx:24,ry:24})); }
+      else if(n.type==='decision'){ add(make('rect',{x:0,y:0,width:w,height:h,transform:`rotate(45 ${w/2} ${h/2})`})); }
+      else if(n.type==='document'){ add(make('path',{d:`M0 0 H ${w} V ${h-16} q -20 16 -40 16 H 0 Z`})); }
+      else if(n.type==='database'){ add(make('rect',{x:0,y:14,width:w,height:h-28,rx:8,ry:8})); const top=make('ellipse',{cx:w/2,cy:14,rx:w/2-6,ry:10}); add(top); const bot=make('ellipse',{cx:w/2,cy:h-14,rx:w/2-6,ry:10}); add(bot); }
+      else if(n.type==='input_output'){ add(make('path',{d:`M18 0 H ${w} L ${w-18} ${h} H 0 Z`})); }
+      else if(n.type==='display'){ add(make('path',{d:`M10 0 H ${w-10} a10 10 0 0 1 10 10 V ${h-20} a10 10 0 0 1 -10 10 H 10 a10 10 0 0 1 -10 -10 V 10 a10 10 0 0 1 10 -10 Z`})); }
+      else if(n.type==='manual_operation'){ add(make('path',{d:`M20 0 H ${w-20} L ${w} ${h} H 0 Z`})); }
+      else if(n.type==='merge'){ add(make('path',{d:`M${w/2} ${h} L ${w} 0 H 0 Z`})); }
+      else if(n.type==='manual_input'){ add(make('path',{d:`M0 16 L ${w} 0 V ${h} H 0 Z`})); }
+      else if(n.type==='connector'){ add(make('circle',{cx:w/2,cy:h/2,r:Math.min(w,h)/2})); }
+      else { add(make('rect',{x:0,y:0,width:w,height:h,rx:8,ry:8})); }
+    }
+    const labelY = (n) => n.h/2 + 5;
+
+    // ---- Render ----
+    function render(){
+      nodesG.innerHTML='';
+      for(const n of nodes){
+        const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+        g.setAttribute('data-id',n.id); g.setAttribute('transform',`translate(${n.x},${n.y})`); g.setAttribute('class','node');
+        drawShape(g,n);
+        const text=document.createElementNS('http://www.w3.org/2000/svg','text'); text.setAttribute('x',n.w/2); text.setAttribute('y',labelY(n)); text.setAttribute('text-anchor','middle'); text.textContent=n.label; g.appendChild(text);
+
+        // connector handle (drag to connect)
+        const dotH=document.createElementNS('http://www.w3.org/2000/svg','g');
+        dotH.setAttribute('class','conn-dot');
+        dotH.setAttribute('transform',`translate(${n.w/2-8},${n.h+6-8})`);
+        dotH.innerHTML='<circle cx="8" cy="8" r="8" fill="#e2e8f0" stroke="#64748b"/><path d="M4 8 H12" stroke="#64748b" stroke-width="1.5"/>';
+
+        // plus button (click to create child)
+        const addG=document.createElementNS('http://www.w3.org/2000/svg','g');
+        addG.setAttribute('class','add-dot');
+        addG.setAttribute('transform',`translate(${n.w/2-8},${n.h+22})`);
+        addG.innerHTML='<circle cx="8" cy="8" r="8" fill="#3b82f6" stroke="#1d4ed8"/><path d="M8 4 V12 M4 8 H12" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/>';
+        addG.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); const child=createChildNode(n); if(child){ render(); persist(); }});
+
+        g.appendChild(dotH);
+        g.appendChild(addG);
+
+        dotH.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); startConnect(n,e); });
+        g.addEventListener('pointerdown', onDragStart);
+        g.addEventListener('click',(e)=>{ if(e.target.closest('.conn-dot')) return; openPopover(n); e.stopPropagation(); });
+        g.addEventListener('dblclick',(e)=>{ e.stopPropagation(); inlineEditLabel(n); });
+        g.addEventListener('pointerenter',()=>{ STATE.hoverId=n.id; }); g.addEventListener('pointerleave',()=>{ if(STATE.hoverId===n.id) STATE.hoverId=null; });
+        nodesG.appendChild(g);
+      }
+      renderEdges();
+    }
+
+    function renderEdges(){
+      edgesG.innerHTML='';
+      for(const e of edges){
+        const a=getNode(e.from), b=getNode(e.to); if(!a||!b) continue;
+        let d;
+        if(a===b){
+          // self-loop on right side of node
+          const sx=a.x+a.w, sy=a.y+a.h/2; const ox=Math.max(40,Math.min(80,a.w)); const oy=Math.max(30,Math.min(60,a.h));
+          d=`M ${sx} ${sy} C ${sx+ox} ${sy-oy}, ${sx+ox} ${sy+oy}, ${sx} ${sy}`;
+        } else {
+          const ax=a.x+a.w/2, ay=a.y+a.h, bx=b.x+b.w/2, by=b.y, midY=(ay+by)/2;
+          d=`M ${ax} ${ay-10} C ${ax} ${midY}, ${bx} ${midY}, ${bx} ${by+10}`;
+        }
+        // invisible hit-path first (for easy clicking)
+        const hit=document.createElementNS('http://www.w3.org/2000/svg','path');
+        hit.setAttribute('d',d); hit.setAttribute('class','edge-hit');
+        hit.addEventListener('click',(ev)=>{ ev.stopPropagation(); selectEdge(e.id); });
+        edgesG.appendChild(hit);
+
+        // visible edge
+        const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+        path.setAttribute('d',d);
+        path.setAttribute('class',`edge${STATE.selectedEdgeId===e.id?' selected':''}`);
+        path.setAttribute('marker-end','url(#arrow)');
+        path.style.cursor='pointer';
+        path.addEventListener('click',(ev)=>{ ev.stopPropagation(); selectEdge(e.id); });
+        edgesG.appendChild(path);
+      }
+      if(tempEdgeEl) edgesG.appendChild(tempEdgeEl);
+    }
+
+    // ---- Interactions ----
+    function svgPoint(evt){ const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; const inv=viewport.getScreenCTM().inverse(); return pt.matrixTransform(inv); }
+
+    function onDragStart(e){
+      const g=e.currentTarget; const id=g.getAttribute('data-id'); STATE.selectedId=id; const n=getNode(id);
+      if(e.shiftKey){ startConnect(n,e); return; }
+      if(e.target.closest('.conn-dot')) return;
+      const p=svgPoint(e); STATE.drag={id,dx:p.x-n.x,dy:p.y-n.y}; svg.addEventListener('pointermove',onDrag); svg.addEventListener('pointerup',onDragEnd,{once:true});
+    }
+    function onDrag(e){ if(!STATE.drag) return; const n=getNode(STATE.drag.id); const p=svgPoint(e); n.x=Math.round(p.x-STATE.drag.dx); n.y=Math.round(p.y-STATE.drag.dy); render(); }
+    function onDragEnd(){ STATE.drag=null; persist(); svg.removeEventListener('pointermove',onDrag); }
+
+    let tempEdgeEl=null; function ensureTempEdge(){ if(!tempEdgeEl){ tempEdgeEl=document.createElementNS('http://www.w3.org/2000/svg','path'); tempEdgeEl.setAttribute('class','tmp-edge'); tempEdgeEl.style.pointerEvents='none'; edgesG.appendChild(tempEdgeEl);} return tempEdgeEl; }
+
+    function startConnect(n,evt){ const startX=n.x+n.w/2, startY=n.y+n.h/2; STATE.connect={fromId:n.id,sx:startX,sy:startY}; const p=svgPoint(evt); ensureTempEdge().setAttribute('d',`M ${startX} ${startY} C ${startX} ${(startY+p.y)/2}, ${p.x} ${(startY+p.y)/2}, ${p.x} ${p.y}`); svg.addEventListener('pointermove',onConnectMove); svg.addEventListener('pointerup',endConnect,{once:true}); }
+    function onConnectMove(e){ if(!STATE.connect) return; STATE.lastClient={x:e.clientX,y:e.clientY}; const p=svgPoint(e); const {sx,sy}=STATE.connect; ensureTempEdge().setAttribute('d',`M ${sx} ${sy} C ${sx} ${(sy+p.y)/2}, ${p.x} ${(sy+p.y)/2}, ${p.x} ${p.y}`); }
+    function endConnect(){ if(STATE.connect){ let to=null; if(STATE.lastClient){ const el=document.elementFromPoint(STATE.lastClient.x,STATE.lastClient.y); const g=el&&el.closest&&el.closest('g.node'); if(g) to=g.getAttribute('data-id'); } if(!to){ const from=STATE.connect.fromId; to=STATE.hoverId&&STATE.hoverId!==from?STATE.hoverId:null; } const fromId=STATE.connect.fromId; if(to) addEdge(fromId,to); } if(tempEdgeEl){ edgesG.removeChild(tempEdgeEl); tempEdgeEl=null; } STATE.connect=null; svg.removeEventListener('pointermove',onConnectMove); }
+
+    function applyView(){ viewport.setAttribute('transform',`translate(${STATE.panX},${STATE.panY}) scale(${STATE.scale})`); renderEdges(); }
+
+    // panning & zoom (space/middle/right mouse pans; ctrl/⌘ + wheel zooms)
+    svg.addEventListener('pointerdown',(e)=>{ const isBackground=e.target===svg||e.target===edgesG||e.target===nodesG||e.target.closest('#viewport')===null; const panBtn=e.button===1||e.button===2; if(isBackground||panBtn||STATE.spaceHeld){ STATE.panning={ start:svgPoint(e), startPanX:STATE.panX, startPanY:STATE.panY }; svg.style.cursor='grab'; e.preventDefault(); } });
+    svg.addEventListener('pointermove',(e)=>{ if(!STATE.panning) return; const p=svgPoint(e); const dx=p.x-STATE.panning.start.x; const dy=p.y-STATE.panning.start.y; STATE.panX=STATE.panning.startPanX+dx; STATE.panY=STATE.panning.startPanY+dy; applyView(); });
+    svg.addEventListener('pointerup',()=>{ STATE.panning=null; svg.style.cursor=''; });
+    svg.addEventListener('pointerleave',()=>{ STATE.panning=null; svg.style.cursor=''; });
+
+    window.addEventListener('keydown',(e)=>{ if(e.code==='Space'){ STATE.spaceHeld=true; svg.style.cursor='grab'; } });
+    window.addEventListener('keyup',(e)=>{ if(e.code==='Space'){ STATE.spaceHeld=false; svg.style.cursor=''; } });
+
+    svg.addEventListener('wheel',(e)=>{ if(!e.ctrlKey && !e.metaKey) return; e.preventDefault(); const zoomFactor=1+Math.abs(e.deltaY)*0.0015; const oldScale=STATE.scale; const newScale=e.deltaY<0?oldScale*zoomFactor:oldScale/zoomFactor; const clamp=(v,min,max)=>Math.max(min,Math.min(max,v)); STATE.scale=clamp(newScale,0.25,3); const p=svgPoint(e); STATE.panX=p.x-(p.x-STATE.panX)*(STATE.scale/oldScale); STATE.panY=p.y-(p.y-STATE.panY)*(STATE.scale/oldScale); applyView(); },{passive:false});
+
+    // Edge selection / deletion
+    function selectEdge(id){ STATE.selectedEdgeId=id; renderEdges(); }
+    function deleteSelectedEdge(){ if(!STATE.selectedEdgeId) return; edges=edges.filter(e=>e.id!==STATE.selectedEdgeId); STATE.selectedEdgeId=null; renderEdges(); persist(); }
+    window.addEventListener('keydown',(e)=>{ if((e.key==='Delete'||e.key==='Backspace')&&STATE.selectedEdgeId){ e.preventDefault(); deleteSelectedEdge(); } });
+
+    // Popover & inline label editing
+    const pop=document.getElementById('popover'); const pLabel=document.getElementById('pLabel'); const pType=document.getElementById('pType'); const pDetails=document.getElementById('pDetails'); const pFill=document.getElementById('pFill'); const pStroke=document.getElementById('pStroke');
+    const pFile=document.getElementById('pFile'); const pAddFile=document.getElementById('pAddFile'); const pFilesList=document.getElementById('pFilesList'); const attachHint=document.getElementById('attachHint');
+    const MAX_EMBED_SIZE=200*1024; let popNodeId=null; const labelEditor=document.getElementById('labelEditor');
+
+    const getActiveNode = () => nodes.find(n=>n.id===popNodeId);
+
+    function humanSize(bytes){ if(bytes<1024) return bytes+' B'; const kb=bytes/1024; if(kb<1024) return kb.toFixed(1)+' KB'; return (kb/1024).toFixed(1)+' MB'; }
+
+    function renderFilesList(n){ if(!n.attachments) n.attachments=[]; pFilesList.innerHTML=''; n.attachments.forEach((att,idx)=>{ const li=document.createElement('li'); li.className='flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1'; const left=document.createElement('div'); left.className='min-w-0'; left.innerHTML=`<div class="truncate text-slate-700">${att.name}</div><div class="text-[11px] text-slate-400">${humanSize(att.size)}${att.sessionOnly?' · session-only':''}</div>`; const right=document.createElement('div'); right.className='flex items-center gap-2 flex-shrink-0'; const a=document.createElement('a'); a.className='text-xs text-blue-600 hover:underline'; a.textContent='Open'; a.target='_blank'; a.rel='noopener'; a.href=att.dataUrl||att.blobUrl||'#'; const del=document.createElement('button'); del.className='text-xs text-rose-600 hover:underline'; del.textContent='Remove'; del.addEventListener('click',()=>{ if(att.blobUrl) URL.revokeObjectURL(att.blobUrl); n.attachments.splice(idx,1); renderFilesList(n); persist(); }); right.appendChild(a); right.appendChild(del); li.appendChild(left); li.appendChild(right); pFilesList.appendChild(li); }); attachHint.textContent='Small files persist; large files are session‑only'; }
+
+    function addAttachmentFromFile(n,file){ if(!n.attachments) n.attachments=[]; if(file.size<=MAX_EMBED_SIZE){ const fr=new FileReader(); fr.onload=()=>{ n.attachments.push({name:file.name,size:file.size,type:file.type,dataUrl:fr.result,sessionOnly:false}); renderFilesList(n); persist(); }; fr.readAsDataURL(file); } else { const url=URL.createObjectURL(file); n.attachments.push({name:file.name,size:file.size,type:file.type,blobUrl:url,sessionOnly:true}); renderFilesList(n); persist(); } }
+
+    pAddFile.addEventListener('click',()=>{ const n=getActiveNode(); if(!n) return; const f=pFile.files && pFile.files[0]; if(!f) return; addAttachmentFromFile(n,f); pFile.value=''; });
+
+    function openPopover(n){ popNodeId=n.id; pLabel.value=n.label; pType.value=n.type; pDetails.value=n.details||''; pFill.value=toColor(n.fill); pStroke.value=toColor(n.stroke); if(!n.attachments) n.attachments=[]; renderFilesList(n); const pt=svg.createSVGPoint(); pt.x=n.x+n.w+8; pt.y=n.y; const scr=pt.matrixTransform(viewport.getScreenCTM()); pop.style.left=scr.x+'px'; pop.style.top=scr.y+'px'; pop.classList.remove('hidden'); setTimeout(()=>pop.classList.add('popover-active'),0); }
+    function closePopover(){ pop.classList.add('hidden'); pop.classList.remove('popover-active'); popNodeId=null; }
+    document.getElementById('closePop').addEventListener('click',closePopover);
+
+    document.getElementById('pSave').addEventListener('click',()=>{ const n=getNode(popNodeId); if(!n) return; n.label=pLabel.value||n.label; n.type=pType.value; n.details=pDetails.value; n.fill=pFill.value; n.stroke=pStroke.value; const s=NODE_SPECS[n.type]||NODE_BASE; n.w=s.w; n.h=s.h; render(); persist(); closePopover(); });
+    document.getElementById('pDelete').addEventListener('click',()=>{ if(!popNodeId) return; nodes=nodes.filter(n=>n.id!==popNodeId); edges=edges.filter(e=>e.from!==popNodeId && e.to!==popNodeId); render(); persist(); closePopover(); });
+    document.getElementById('pDuplicate').addEventListener('click',()=>{ duplicateNode(popNodeId); });
+
+    function inlineEditLabel(n){ labelEditor.value=n.label; const pt=svg.createSVGPoint(); pt.x=n.x+n.w/2-60; pt.y=n.y+n.h/2-14; const scr=pt.matrixTransform(viewport.getScreenCTM()); labelEditor.style.left=scr.x+'px'; labelEditor.style.top=scr.y+'px'; labelEditor.classList.remove('hidden'); labelEditor.focus(); labelEditor.select(); function commit(){ n.label=labelEditor.value.trim()||n.label; labelEditor.classList.add('hidden'); render(); persist(); labelEditor.removeEventListener('keydown',onKey); labelEditor.removeEventListener('blur',onBlur);} function onKey(e){ if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ labelEditor.classList.add('hidden'); labelEditor.removeEventListener('keydown',onKey); labelEditor.removeEventListener('blur',onBlur); }} function onBlur(){ commit(); } labelEditor.addEventListener('keydown',onKey); labelEditor.addEventListener('blur',onBlur); }
+
+    // Toolbar actions
+    document.getElementById('addStartBtn').addEventListener('click',()=>{ addNode({x:300,y:120,type:'terminator',label:'Start'}); });
+    document.getElementById('clearBtn').addEventListener('click',()=>{ if(confirm('Clear the canvas and local data?')){ nodes=[]; edges=[]; STATE.panX=0; STATE.panY=0; STATE.scale=1; applyView(); render(); persist(); closePopover(); localStorage.removeItem('wf:nodes'); localStorage.removeItem('wf:edges'); }});
+    document.getElementById('exportBtn').addEventListener('click',()=>{ const data={nodes,edges,view:{panX:STATE.panX,panY:STATE.panY,scale:STATE.scale}}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='workflow.json'; a.click(); URL.revokeObjectURL(url); });
+    document.getElementById('importInput').addEventListener('change',(e)=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const obj=JSON.parse(r.result); nodes=obj.nodes||[]; edges=(obj.edges||[]).filter(e=>e.from && e.to); const v=obj.view||{}; STATE.panX=v.panX||0; STATE.panY=v.panY||0; STATE.scale=v.scale||1; applyView(); render(); persist(); }catch{ alert('Invalid JSON'); } }; r.readAsText(f); });
+
+    function toColor(v){ const ctx=document.createElement('canvas').getContext('2d'); ctx.fillStyle=v; return ctx.fillStyle; }
+    function persist(){ localStorage.setItem('wf:nodes',JSON.stringify(nodes)); localStorage.setItem('wf:edges',JSON.stringify(edges)); }
+
+    function load(){
+      try{ nodes=JSON.parse(localStorage.getItem('wf:nodes'))||[]; edges=JSON.parse(localStorage.getItem('wf:edges'))||[]; }catch{}
+      if(nodes.length===0){ const s=addNode({x:300,y:120,type:'terminator',label:'Start'}); const a=addNode({x:300,y:280,type:'process',label:'Action'}); addEdge(s.id,a.id);} 
+      render();
+      // ---- Smoke tests (non-destructive) ----
+      console.assert(Array.isArray(nodes),'nodes array exists');
+      const ids=new Set(nodes.map(n=>n.id)); console.assert(ids.size===nodes.length,'node ids unique');
+      const n1=addNode({x:900,y:120,type:'process',label:'EdgeTest-A'}); const n2=addNode({x:900,y:260,type:'process',label:'EdgeTest-B'});
+      const pre=edges.length; const eid=addEdge(n1.id,n2.id); console.assert(edges.length===pre+1,'edge create');
+      const beforeDup=edges.length; const eid2=addEdge(n1.id,n2.id); console.assert(edges.length===beforeDup && eid===eid2,'edge dedupe');
+      const beforeSelf=edges.length; addEdge(n1.id,n1.id); console.assert(edges.length===beforeSelf+1,'self-edge ok');
+      STATE.selectedEdgeId=eid; const beforeDel=edges.length; deleteSelectedEdge(); console.assert(edges.length===beforeDel-1,'edge delete');
+      nodes=nodes.filter(n=>!['EdgeTest-A','EdgeTest-B'].includes(n.label)); edges=edges.filter(e=>getNode(e.from)&&getNode(e.to)); render(); persist();
+    }
+
+    // Deselect edges and close popover on background click
+    svg.addEventListener('click',(e)=>{ const clickedEdge=e.target && e.target.closest && e.target.closest('path.edge'); if(!clickedEdge){ STATE.selectedEdgeId=null; renderEdges(); } if(e.target===svg || e.target.closest('#edges')) closePopover(); });
+
+    load();
+  </script>
+</body>
+</html>
