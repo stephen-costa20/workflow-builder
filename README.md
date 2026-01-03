@@ -1,3 +1,11 @@
+<p align="center">
+  <a href="https://github.com/stephen-costa20/workflow-builder"><img src="https://img.shields.io/badge/View%20on%20GitHub-%20-blue?style=for-the-badge" alt="View on GitHub"></a>
+  <a href="https://github.com/stephen-costa20/workflow-builder/blob/main/LICENSE"><img src="https://img.shields.io/github/license/stephen-costa20/workflow-builder?style=for-the-badge" alt="License"></a>
+  <a href="https://github.com/stephen-costa20/workflow-builder/commits/main"><img src="https://img.shields.io/github/last-commit/stephen-costa20/workflow-builder?style=for-the-badge" alt="Last Commit"></a>
+  <img src="https://img.shields.io/badge/Built%20With-SVG%20%26%20JS-orange?style=for-the-badge" alt="Built with SVG & JS">
+</p>
+
+
 # Interactive Workflow Builder
 
 A fully client-side, interactive workflow builder built with **HTML, SVG, Tailwind CSS, and vanilla JavaScript**.
